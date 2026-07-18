@@ -16,6 +16,8 @@ import {
 import { generateReply, extractCandidateFact, initEngine } from "./lib/llm";
 import { createConsentCommitment, type ConsentAction } from "./lib/midnight";
 
+type Theme = "dark" | "light" | "fantasy";
+
 export default function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -26,7 +28,16 @@ export default function App() {
   const [modelStatus, setModelStatus] = useState("Initializing local model…");
   const [sending, setSending] = useState(false);
   const [lastCommitment, setLastCommitment] = useState<string | null>(null);
+  const [theme, setTheme] = useState<Theme>(
+    () => (localStorage.getItem("chat-theme") as Theme) || "dark"
+  );
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("chat-theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     (async () => {
@@ -39,8 +50,10 @@ export default function App() {
         await initEngine((msg) => setModelStatus(msg));
         setLoadingModel(false);
       } catch (e) {
+        console.error("Model init failed:", e);
+        const detail = e instanceof Error ? e.message : String(e);
         setModelStatus(
-          "WebGPU is not available on this browser/device. Try an up-to-date Chrome."
+          `Failed to start the local model: ${detail}. Check the browser console for details.`
         );
       }
     })();
@@ -135,10 +148,44 @@ export default function App() {
 
   return (
     <div className="app">
-      <aside className="sidebar">
+      <button
+        className="mobile-menu-btn"
+        onClick={() => setSidebarOpen((v) => !v)}
+        aria-label="Toggle menu"
+      >
+        ☰
+      </button>
+
+      {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
+
+      <aside className={"sidebar" + (sidebarOpen ? " open" : "")}>
         <div className="brand">
           <span className="brand-mark">◐</span>
           <span className="brand-name">private chat</span>
+        </div>
+
+        <div className="theme-switcher">
+          <button
+            className={theme === "dark" ? "theme-btn active" : "theme-btn"}
+            onClick={() => setTheme("dark")}
+            title="Dark"
+          >
+            🌙
+          </button>
+          <button
+            className={theme === "light" ? "theme-btn active" : "theme-btn"}
+            onClick={() => setTheme("light")}
+            title="Light"
+          >
+            ☀️
+          </button>
+          <button
+            className={theme === "fantasy" ? "theme-btn active" : "theme-btn"}
+            onClick={() => setTheme("fantasy")}
+            title="Fantasy"
+          >
+            ✨
+          </button>
         </div>
 
         <button className="btn-new" onClick={handleNewConversation}>
@@ -150,7 +197,10 @@ export default function App() {
             <div
               key={c.id}
               className={"conv-item" + (c.id === activeId ? " active" : "")}
-              onClick={() => setActiveId(c.id)}
+              onClick={() => {
+                setActiveId(c.id);
+                setSidebarOpen(false);
+              }}
             >
               <span className="conv-title">{c.title}</span>
               <button
