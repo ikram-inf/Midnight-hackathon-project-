@@ -100,7 +100,7 @@ export default function App() {
     setInput("");
     setSending(true);
 
-    const userMsg = await addMessage({ conversationId: convId, role: "user", content: userText });
+    const userMsg = await addMessage({ conversationId: convId, role: "user", encryptedContent: userText });
     setMessages((m) => [...m, userMsg]);
 
     // Local-only "learning": look for a fact worth remembering, store it,
@@ -113,14 +113,14 @@ export default function App() {
 
     const history = [...messages, userMsg].map((m) => ({
       role: m.role,
-      content: m.content,
+      content: m.encryptedContent,
     }));
 
     const replyText = await generateReply(history);
     const assistantMsg = await addMessage({
       conversationId: convId,
       role: "assistant",
-      content: replyText,
+      encryptedContent: replyText,
     });
     setMessages((m) => [...m, assistantMsg]);
     setConversations(await listConversations());
