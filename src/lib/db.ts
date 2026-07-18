@@ -12,7 +12,7 @@ export interface ChatMessage {
   id?: number;
   conversationId: string;
   role: "user" | "assistant";
-  content: string;
+  encryptedContent: string;
   createdAt: number;
 }
 
@@ -25,7 +25,7 @@ export interface Conversation {
 
 export interface UserProfileFact {
   id?: number;
-  fact: string; // a short natural-language fact learned about the user, e.g. "prefers concise answers"
+  encryptedFact: string; // a short natural-language fact learned about the user, e.g. "prefers concise answers"
   createdAt: number;
 }
 
@@ -35,7 +35,7 @@ class LocalChatDB extends Dexie {
   profileFacts!: Table<UserProfileFact, number>;
 
   constructor() {
-    super("midnight-private-chat");
+    super("vaultai-private-vault");
     this.version(1).stores({
       conversations: "id, updatedAt",
       messages: "++id, conversationId, createdAt",
@@ -89,8 +89,11 @@ export async function wipeEverything() {
 
 // --- Learned profile (the "training only for this user" part) ---------
 
-export async function addProfileFact(fact: string) {
-  await db.profileFacts.add({ fact, createdAt: Date.now() });
+export async function addProfileFact(encryptedFact: string) {
+  await db.profileFacts.add({
+    encryptedFact,
+    createdAt: Date.now(),
+  });
 }
 
 export async function listProfileFacts() {
