@@ -18,7 +18,7 @@ import { listProfileFacts } from "./db";
 
 // Small, fast, WebGPU-friendly model. Swap for another id from
 // webllm.prebuiltAppConfig.model_list if you want something bigger/smaller.
-const MODEL_ID = "Llama-3.2-1B-Instruct-q4f32_1-MLC";
+const MODEL_ID = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
 
 let engine: webllm.MLCEngineInterface | null = null;
 
