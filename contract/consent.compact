@@ -1,0 +1,34 @@
+// consent.compact
+//
+// Minimal illustrative Compact contract for the "Midnight Private Chat" demo.
+//
+// Purpose: let a user anchor, on-chain, a PROOF that they gave or revoked
+// consent for local personalization, or that they wiped their local data —
+// without ever revealing the conversation content, the fact list, or any
+// personal data. Only an opaque commitment hash is stored publicly.
+//
+// This is a STARTING POINT, not production code. Before the hackathon demo:
+//   1. Confirm current Compact syntax against the reference doc (language
+//      evolves fast): https://mlh.link/midnight-hackathon-compact-reference-doc
+//   2. Test with the example repos: https://mlh.link/midnight-hackathon-example-repo
+//   3. Wire calls from src/lib/midnight.ts via MidnightJS.
+
+pragma language_version 0.13;
+
+import CompactStandardLibrary;
+
+// Public ledger state: we only ever store commitments (hashes), never raw data.
+export ledger consentCommitments: Set<Bytes<32>>;
+
+// Records a commitment produced off-chain (see midnight.ts: createConsentCommitment).
+// The witness/private input pattern below is illustrative — check the
+// reference doc for the current circuit/witness syntax before the demo.
+export circuit recordConsent(commitment: Bytes<32>): [] {
+  consentCommitments.insert(commitment);
+}
+
+// Lets anyone verify a commitment was recorded, without learning anything
+// about what action it corresponds to or who submitted it.
+export circuit isRecorded(commitment: Bytes<32>): Boolean {
+  return consentCommitments.member(commitment);
+}
