@@ -12,9 +12,22 @@ import {
   addProfileFact,
   listProfileFacts,
   deleteProfileFact,
+  updateConversationTitle,
 } from "./lib/db";
-import { generateReply, extractCandidateFact, initEngine } from "./lib/llm";
+import {
+  generateReply,
+  extractCandidateFact,
+  initEngine,
+  getChatMode,
+  setChatMode,
+  type ChatMode,
+  getLocalModelId,
+  setLocalModelId,
+  LOCAL_MODELS,
+} from "./lib/llm";
 import { createConsentCommitment, type ConsentAction } from "./lib/midnight";
+
+type Theme = "dark" | "light" | "fantasy";
 
 export default function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -26,10 +39,22 @@ export default function App() {
   const [modelStatus, setModelStatus] = useState("Initializing local model…");
   const [sending, setSending] = useState(false);
   const [lastCommitment, setLastCommitment] = useState<string | null>(null);
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setTheme] = useState<Theme>(
+    () => (localStorage.getItem("chat-theme") as Theme) || "dark"
+  );
+  const [chatMode, setChatModeState] = useState<ChatMode>(getChatMode());
+  const [localModelId, setLocalModelIdState] = useState<string>(getLocalModelId());
+  const [notification, setNotification] = useState<{
+    message: string;
+    type: "info" | "warning" | "success";
+  } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("chat-theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     (async () => {
@@ -38,13 +63,25 @@ export default function App() {
       if (convs.length > 0) setActiveId(convs[0].id);
       setFacts(await listProfileFacts());
 
+      const currentMode = getChatMode();
+      if (currentMode === "cloud") {
+        setLoadingModel(false);
+        return;
+      }
+
       try {
         await initEngine((msg) => setModelStatus(msg));
         setLoadingModel(false);
       } catch (e) {
-        setModelStatus(
-          "WebGPU is not available on this browser/device. Try an up-to-date Chrome."
-        );
+        console.error("Local model init failed, falling back to cloud proxy:", e);
+        const detail = e instanceof Error ? e.message : String(e);
+        setChatMode("cloud");
+        setChatModeState("cloud");
+        setLoadingModel(false);
+        setNotification({
+          message: `Local WebGPU loading failed (${detail}). Switched to Secure Cloud Proxy (Gemini 3.5) fallback. Your chat history and learned facts remain 100% locally on IndexedDB!`,
+          type: "warning",
+        });
       }
     })();
   }, []);
@@ -60,29 +97,7 @@ export default function App() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages]);
-  useEffect(() => {
-  const savedTheme = localStorage.getItem("theme");
 
-  if (savedTheme === "dark" || savedTheme === "light") {
-    setTheme(savedTheme);
-    document.documentElement.setAttribute("data-theme", savedTheme);
-  } else {
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const initialTheme = prefersDark ? "dark" : "light";
-
-    setTheme(initialTheme);
-    document.documentElement.setAttribute("data-theme", initialTheme);
-  }
-  }, []);
-  function toggleTheme() {
-  const nextTheme = theme === "dark" ? "light" : "dark";
-
-  setTheme(nextTheme);
-
-  document.documentElement.setAttribute("data-theme", nextTheme);
-
-  localStorage.setItem("theme", nextTheme);
-  }
   async function handleNewConversation() {
     const conv = await createConversation();
     setConversations(await listConversations());
@@ -114,19 +129,32 @@ export default function App() {
   async function handleSend() {
     if (!input.trim() || sending) return;
     let convId = activeId;
+    let isNew = false;
     if (!convId) {
       const conv = await createConversation();
       setConversations(await listConversations());
       convId = conv.id;
       setActiveId(convId);
+      isNew = true;
     }
 
     const userText = input;
     setInput("");
     setSending(true);
 
-    const userMsg = await addMessage({ conversationId: convId, role: "user", encryptedContent: userText });
+    const userMsg = await addMessage({ conversationId: convId, role: "user", content: userText });
     setMessages((m) => [...m, userMsg]);
+
+    // Dynamic renaming from "Nouvelle conversation" to the first user message snippet
+    const currentConv = conversations.find((c) => c.id === convId);
+    if (isNew || (currentConv && currentConv.title === "Nouvelle conversation")) {
+      let snippet = userText.trim();
+      if (snippet.length > 30) {
+        snippet = snippet.slice(0, 30) + "...";
+      }
+      await updateConversationTitle(convId, snippet);
+      setConversations(await listConversations());
+    }
 
     // Local-only "learning": look for a fact worth remembering, store it,
     // and let the user see/delete it immediately.
@@ -138,16 +166,27 @@ export default function App() {
 
     const history = [...messages, userMsg].map((m) => ({
       role: m.role,
-      content: m.encryptedContent,
+      content: m.content,
     }));
 
-    const replyText = await generateReply(history);
-    const assistantMsg = await addMessage({
-      conversationId: convId,
-      role: "assistant",
-      encryptedContent: replyText,
-    });
-    setMessages((m) => [...m, assistantMsg]);
+    try {
+      const replyText = await generateReply(history, chatMode);
+      const assistantMsg = await addMessage({
+        conversationId: convId,
+        role: "assistant",
+        content: replyText,
+      });
+      setMessages((m) => [...m, assistantMsg]);
+    } catch (err: any) {
+      console.error("Failed to generate reply:", err);
+      const errMsg = err.message || "Failed to generate a reply.";
+      const assistantMsg = await addMessage({
+        conversationId: convId,
+        role: "assistant",
+        content: `⚠️ Error: ${errMsg}\n\nPlease try switching the AI Engine in the sidebar to another mode or check your configuration.`,
+      });
+      setMessages((m) => [...m, assistantMsg]);
+    }
     setConversations(await listConversations());
     setSending(false);
   }
@@ -159,29 +198,141 @@ export default function App() {
   }
 
   return (
-  <div className={`app ${sidebarOpen ? "sidebar-open" : ""}`}>
-      <aside className="sidebar">
+    <div className="app">
+      <button
+        className="mobile-menu-btn"
+        onClick={() => setSidebarOpen((v) => !v)}
+        aria-label="Toggle menu"
+      >
+        ☰
+      </button>
+
+      {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
+
+      <aside className={"sidebar" + (sidebarOpen ? " open" : "")}>
         <div className="brand">
-  <div className="brand-left">
-    <div className="brand-icon">🛡️</div>
+          <span className="brand-mark">◐</span>
+          <span className="brand-name">private chat</span>
+        </div>
 
-    <div className="brand-info">
-      <h2>Vault AI</h2>
-      <p>Local-first • Privacy-focused • User-owned</p>
-    </div>
-  </div>
+        <div className="theme-switcher">
+          <button
+            className={theme === "dark" ? "theme-btn active" : "theme-btn"}
+            onClick={() => setTheme("dark")}
+            title="Black"
+            style={{ fontSize: "11px", fontFamily: '"IBM Plex Mono", monospace' }}
+          >
+            ⚫ Black
+          </button>
+          <button
+            className={theme === "light" ? "theme-btn active" : "theme-btn"}
+            onClick={() => setTheme("light")}
+            title="Light"
+            style={{ fontSize: "11px", fontFamily: '"IBM Plex Mono", monospace' }}
+          >
+            ⚪ Light
+          </button>
+          <button
+            className={theme === "fantasy" ? "theme-btn active" : "theme-btn"}
+            onClick={() => setTheme("fantasy")}
+            title="Purple"
+            style={{ fontSize: "11px", fontFamily: '"IBM Plex Mono", monospace' }}
+          >
+            🟣 Purple
+          </button>
+        </div>
 
-  <button
-      className={`theme-switch ${theme}`}
-      onClick={toggleTheme}
-      aria-label="Toggle theme"
-    >
-      <div className="switch-thumb">
-        {theme === "dark" ? "🌙" : "☀️"}
-      </div>
-    </button>
-  </div>
+        <div className="engine-switcher">
+          <div className="section-label">AI Engine</div>
+          <div className="engine-buttons">
+            <button
+              className={`engine-btn ${chatMode === "local" ? "active" : ""}`}
+              onClick={async () => {
+                if (chatMode === "local") return;
+                setLoadingModel(true);
+                setModelStatus("Initializing local model…");
+                try {
+                  setChatMode("local");
+                  setChatModeState("local");
+                  await initEngine((msg) => setModelStatus(msg));
+                  setLoadingModel(false);
+                  setNotification({
+                    message: "Switched to Local WebGPU Mode. Running 100% locally on your hardware!",
+                    type: "success",
+                  });
+                } catch (err: any) {
+                  const detail = err instanceof Error ? err.message : String(err);
+                  setChatMode("cloud");
+                  setChatModeState("cloud");
+                  setLoadingModel(false);
+                  setNotification({
+                    message: `Failed to load local model: ${detail}. Switched to Secure Cloud Proxy.`,
+                    type: "warning",
+                  });
+                }
+              }}
+            >
+              💻 Local
+            </button>
+            <button
+              className={`engine-btn ${chatMode === "cloud" ? "active" : ""}`}
+              onClick={() => {
+                setChatMode("cloud");
+                setChatModeState("cloud");
+                setLoadingModel(false);
+                setNotification({
+                  message: "Switched to Secure Cloud Proxy (Gemini). Zero download, fast and fully operational!",
+                  type: "info",
+                });
+              }}
+            >
+              ☁️ Cloud
+            </button>
+          </div>
 
+          {chatMode === "local" && (
+            <div className="model-select-wrapper">
+              <div className="section-label" style={{ marginTop: "8px" }}>Local Model Size</div>
+              <select
+                className="model-select"
+                value={localModelId}
+                onChange={async (e) => {
+                  const newModelId = e.target.value;
+                  setLocalModelId(newModelId);
+                  setLocalModelIdState(newModelId);
+                  setLoadingModel(true);
+                  setModelStatus("Switching local model…");
+                  try {
+                    await initEngine((msg) => setModelStatus(msg), newModelId);
+                    setLoadingModel(false);
+                    setNotification({
+                      message: `Successfully loaded ${LOCAL_MODELS.find(m => m.id === newModelId)?.name}!`,
+                      type: "success",
+                    });
+                  } catch (err: any) {
+                    const detail = err instanceof Error ? err.message : String(err);
+                    setChatMode("cloud");
+                    setChatModeState("cloud");
+                    setLoadingModel(false);
+                    setNotification({
+                      message: `Failed to load ${LOCAL_MODELS.find(m => m.id === newModelId)?.name}: ${detail}. Switched to Secure Cloud Proxy fallback.`,
+                      type: "warning",
+                    });
+                  }
+                }}
+              >
+                {LOCAL_MODELS.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name} ({model.size})
+                  </option>
+                ))}
+              </select>
+              <div className="model-desc">
+                {LOCAL_MODELS.find((m) => m.id === localModelId)?.description}
+              </div>
+            </div>
+          )}
+        </div>
 
         <button className="btn-new" onClick={handleNewConversation}>
           + New conversation
@@ -192,7 +343,10 @@ export default function App() {
             <div
               key={c.id}
               className={"conv-item" + (c.id === activeId ? " active" : "")}
-              onClick={() => setActiveId(c.id)}
+              onClick={() => {
+                setActiveId(c.id);
+                setSidebarOpen(false);
+              }}
             >
               <span className="conv-title">{c.title}</span>
               <button
@@ -240,53 +394,32 @@ export default function App() {
           )}
         </div>
 
-        <div className="privacy-badge">
-          <span className="dot" /> 100% local · no data ever sent
+        <div className="privacy-badge" style={{ color: chatMode === "local" ? "var(--safe)" : "var(--accent)" }}>
+          <span className="dot" style={{ backgroundColor: chatMode === "local" ? "var(--safe)" : "var(--accent)", boxShadow: chatMode === "local" ? "0 0 6px var(--safe)" : "0 0 6px var(--accent)" }} />
+          {chatMode === "local" ? "100% local (WebGPU)" : "Private Proxy (Gemini)"}
         </div>
       </aside>
 
       <main className="chat">
-        <div className="mobile-header">
-  <button
-    className="menu-button"
-    onClick={() => setSidebarOpen(!sidebarOpen)}
-  >
-    ☰
-  </button>
+        {notification && (
+          <div className={`notification-banner ${notification.type}`}>
+            <span>{notification.message}</span>
+            <button className="notification-close" onClick={() => setNotification(null)}>
+              ✕
+            </button>
+          </div>
+        )}
 
-  <h2>Vault AI</h2>
-</div>
         {loadingModel && (
-  <div className="model-loading">
-
-    <div className="loading-logo">🛡️</div>
-
-    <h2>Loading Vault AI</h2>
-
-    <p className="loading-title">
-      Preparing your local AI assistant
-    </p>
-
-    <div className="spinner" />
-
-    <div className="loading-status">
-      {modelStatus}
-    </div>
-
-    <div className="loading-note">
-      This is a one-time download.
-      <br />
-      Future conversations start instantly.
-    </div>
-
-    <div className="loading-benefits">
-      <div>✓ Runs entirely inside your browser</div>
-      <div>✓ No cloud API</div>
-      <div>✓ No personal data uploaded</div>
-    </div>
-
-  </div>
-)}
+          <div className="model-loading">
+            <div className="spinner" />
+            <p>{modelStatus}</p>
+            <p className="model-loading-sub">
+              The model downloads once and stays cached in your browser.
+              Every reply after that is generated locally, with no network calls.
+            </p>
+          </div>
+        )}
 
         <div className="messages" ref={scrollRef}>
           {messages.length === 0 && !loadingModel && (
@@ -316,7 +449,7 @@ export default function App() {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 handleSend();
-              }
+               }
             }}
             placeholder={loadingModel ? "Loading model…" : "Write your message…"}
             disabled={loadingModel}
@@ -329,4 +462,3 @@ export default function App() {
     </div>
   );
 }
-

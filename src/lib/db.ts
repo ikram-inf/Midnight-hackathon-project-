@@ -48,7 +48,7 @@ export const db = new LocalChatDB();
 
 // --- Conversations -----------------------------------------------------
 
-export async function createConversation(title = "New chat") {
+export async function createConversation(title = "Nouvelle conversation") {
   const conv: Conversation = {
     id: crypto.randomUUID(),
     title,
@@ -61,6 +61,10 @@ export async function createConversation(title = "New chat") {
 
 export async function listConversations() {
   return db.conversations.orderBy("updatedAt").reverse().toArray();
+}
+
+export async function updateConversationTitle(id: string, title: string) {
+  await db.conversations.update(id, { title });
 }
 
 export async function getMessages(conversationId: string) {
