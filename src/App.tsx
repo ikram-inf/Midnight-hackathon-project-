@@ -54,6 +54,34 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Synchronous lock to prevent handleSend from running twice concurrently
+  // (e.g. Enter key + Send button click firing almost simultaneously, or a
+  // duplicated keydown event). `sending` state alone is not enough because
+  // React state updates are asynchronous, so two near-simultaneous calls can
+  // both read `sending === false` before the first one has a chance to flip
+  // it. This ref is updated immediately and synchronously.
+  const sendingRef = useRef(false);
+
+  // Always-fresh mirror of `messages`. handleSend is (re)created on every
+  // render and closes over whatever `messages` was at that time. If the
+  // user fires off several sends in a row before a re-render lands, that
+  // closure can be stale and the history sent to generateReply() will be
+  // missing the most recent turns. Reading from this ref instead of the
+  // state variable guarantees we always see the latest messages.
+  const messagesRef = useRef<ChatMessage[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // When handleSend creates a brand-new conversation, it calls setActiveId()
+  // itself, which would normally re-trigger the effect below and re-fetch
+  // messages from the DB — racing against the optimistic setMessages calls
+  // already happening inside handleSend for that same new conversation.
+  // Only the very first message of a brand-new conversation goes through
+  // this path, which is why the bug only showed up there. Setting this flag
+  // right before setActiveId tells the effect to skip that one refetch.
+  const skipNextFetchRef = useRef(false);
+
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("chat-theme", theme);
@@ -92,6 +120,10 @@ export default function App() {
   useEffect(() => {
     if (!activeId) {
       setMessages([]);
+      return;
+    }
+    if (skipNextFetchRef.current) {
+      skipNextFetchRef.current = false;
       return;
     }
     getMessages(activeId).then(setMessages);
@@ -150,72 +182,81 @@ export default function App() {
   }
 
   async function handleSend() {
-    if (!input.trim() || sending) return;
-    let convId = activeId;
-    let isNew = false;
-    if (!convId) {
-      const conv = await createConversation();
-      setConversations(await listConversations());
-      convId = conv.id;
-      setActiveId(convId);
-      isNew = true;
-    }
-
-    const userText = input;
-    setInput("");
+    // Synchronous guard first: blocks a second call that fires before React
+    // has re-rendered with sending === true.
+    if (!input.trim() || sendingRef.current) return;
+    sendingRef.current = true;
     setSending(true);
 
-    const userMsg = await addMessage({ conversationId: convId, role: "user", content: userText });
-    setMessages((m) => [...m, userMsg]);
-
-    // Dynamic renaming from "Nouvelle conversation" to the first user message snippet
-    const currentConv = conversations.find((c) => c.id === convId);
-    if (isNew || (currentConv && currentConv.title === "Nouvelle conversation")) {
-      let snippet = userText.trim();
-      if (snippet.length > 30) {
-        snippet = snippet.slice(0, 30) + "...";
-      }
-      await updateConversationTitle(convId, snippet);
-      setConversations(await listConversations());
-    }
-
-    // Local-only "learning": look for facts worth remembering, store them,
-    // and let the user see/delete them immediately, ONLY if consent is given.
-    if (consentStatus !== "revoked") {
-      const candidates = extractCandidateFacts(userText);
-      if (candidates.length > 0) {
-        for (const candidate of candidates) {
-          await addProfileFact(candidate);
-        }
-        setFacts(await listProfileFacts());
-      }
-    }
-
-    const history = [...messages, userMsg].map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-
     try {
-      const replyText = await generateReply(history, chatMode);
-      const assistantMsg = await addMessage({
-        conversationId: convId,
-        role: "assistant",
-        content: replyText,
-      });
-      setMessages((m) => [...m, assistantMsg]);
-    } catch (err: any) {
-      console.error("Failed to generate reply:", err);
-      const errMsg = err.message || "Failed to generate a reply.";
-      const assistantMsg = await addMessage({
-        conversationId: convId,
-        role: "assistant",
-        content: `⚠️ Error: ${errMsg}\n\nPlease try switching the AI Engine in the sidebar to another mode or check your configuration.`,
-      });
-      setMessages((m) => [...m, assistantMsg]);
+      let convId = activeId;
+      let isNew = false;
+      if (!convId) {
+        const conv = await createConversation();
+        setConversations(await listConversations());
+        convId = conv.id;
+        skipNextFetchRef.current = true;
+        setActiveId(convId);
+        isNew = true;
+      }
+
+      const userText = input;
+      setInput("");
+
+      const userMsg = await addMessage({ conversationId: convId, role: "user", content: userText });
+      setMessages((m) => [...m, userMsg]);
+
+      // Dynamic renaming from "Nouvelle conversation" to the first user message snippet
+      const currentConv = conversations.find((c) => c.id === convId);
+      if (isNew || (currentConv && currentConv.title === "Nouvelle conversation")) {
+        let snippet = userText.trim();
+        if (snippet.length > 30) {
+          snippet = snippet.slice(0, 30) + "...";
+        }
+        await updateConversationTitle(convId, snippet);
+        setConversations(await listConversations());
+      }
+
+      // Local-only "learning": look for facts worth remembering, store them,
+      // and let the user see/delete them immediately, ONLY if consent is given.
+      if (consentStatus !== "revoked") {
+        const candidates = extractCandidateFacts(userText);
+        if (candidates.length > 0) {
+          for (const candidate of candidates) {
+            await addProfileFact(candidate);
+          }
+          setFacts(await listProfileFacts());
+        }
+      }
+
+      const history = [...messagesRef.current, userMsg].map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+      try {
+        const replyText = await generateReply(history, chatMode);
+        const assistantMsg = await addMessage({
+          conversationId: convId,
+          role: "assistant",
+          content: replyText,
+        });
+        setMessages((m) => [...m, assistantMsg]);
+      } catch (err: any) {
+        console.error("Failed to generate reply:", err);
+        const errMsg = err.message || "Failed to generate a reply.";
+        const assistantMsg = await addMessage({
+          conversationId: convId,
+          role: "assistant",
+          content: `⚠️ Error: ${errMsg}\n\nPlease try switching the AI Engine in the sidebar to another mode or check your configuration.`,
+        });
+        setMessages((m) => [...m, assistantMsg]);
+      }
+      setConversations(await listConversations());
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
     }
-    setConversations(await listConversations());
-    setSending(false);
   }
 
   async function handleDeleteFact(id?: number) {
@@ -482,7 +523,7 @@ export default function App() {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 handleSend();
-               }
+              }
             }}
             placeholder={loadingModel ? "Loading model…" : "Write your message…"}
             disabled={loadingModel}
