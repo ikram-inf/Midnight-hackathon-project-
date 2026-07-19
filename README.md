@@ -1,141 +1,106 @@
-#VaultAI 🔐
+🔐 VaultAI — Your AI, Protected in Your Personal Vault
 
-Your AI, Protected in Your Personal Vault
+VaultAI is a privacy-first AI assistant that eliminates centralized data-center storage by running entirely on the user's device. Unlike traditional AI assistants that send conversations to remote servers, VaultAI performs AI inference locally using WebLLM and stores all user data in the browser using IndexedDB.
 
-VaultAI is a privacy-first AI assistant that eliminates centralized data-center storage by running AI directly on the user's device. Instead of uploading conversations and personal data to cloud servers, VaultAI keeps everything local, encrypted, and under the user's complete control.
+Your conversations, preferences, and documents remain under your control—encrypted, private, and never uploaded to the cloud.
 
-🚀 Overview
+---
 
-Traditional AI assistants rely on cloud infrastructure where conversations and personal information are stored in centralized data centers. VaultAI takes a different approach.
+🌟 Features
 
-Using browser-based LLMs and local storage technologies, VaultAI transforms the user's own device into a secure personal AI vault.
+- 🧠 Local AI Inference using WebLLM
+- 🔒 Privacy First — No cloud processing
+- 💬 Local Chat History stored in IndexedDB
+- 🗂️ Conversation Management
+- 📝 Personalized AI Memory built only from your own conversations
+- 🌐 Works Offline after the model is downloaded
+- ⚡ No Backend Required
+- 🛡️ User-Owned Data with complete control over deletion
 
-- 🖥️ AI inference runs locally using WebLLM
-- 🔒 Conversations remain on the user's device
-- 📁 Personal knowledge is stored locally
-- 🚫 No centralized chat storage
-- 🔐 User retains complete ownership of their data
+---
 
-✨ Features
+🚀 Why VaultAI?
 
-- Local AI Assistant powered by WebLLM
-- Private conversations stored locally
-- AI memory personalized for each user
-- Conversation history management
-- Delete individual conversations
-- Wipe all local data at any time
-- Works without sending prompts to AI servers
-- Offline-ready after the model is downloaded
+Today's AI assistants depend on massive data centers to process every prompt. This introduces privacy concerns, internet dependency, and centralized control over user data.
 
-🛠 Tech Stack
+VaultAI takes a different approach.
 
-Frontend
+Instead of sending your conversations to a server, VaultAI transforms your own device into a secure personal AI vault.
+
+- AI runs locally.
+- Conversations stay on your device.
+- No prompts are uploaded.
+- No cloud database stores your data.
+
+---
+
+🏗️ Architecture
+
+                    User Device
+                         │
+        ┌─────────────────────────────────┐
+        │                                 │
+        │          React + Vite           │
+        │                                 │
+        │   ┌─────────────────────────┐   │
+        │   │       WebLLM            │   │
+        │   │ Local AI Inference      │   │
+        │   └────────────┬────────────┘   │
+        │                │                │
+        │      IndexedDB (Dexie)          │
+        │                │                │
+        │     Conversations & Memory      │
+        └─────────────────────────────────┘
+
+          ❌ No Cloud Database
+          ❌ No AI API Calls
+          ❌ No Centralized Storage
+
+---
+
+🛠️ Tech Stack
 
 - React
 - TypeScript
 - Vite
+- WebLLM
+- Dexie (IndexedDB)
 - Tailwind CSS
 
-AI
+---
+🔐 Privacy
 
-- WebLLM
-- MLC AI
+VaultAI is built around one simple principle:
 
-Local Storage
+«Your AI should belong to you.»
 
-- IndexedDB
-- Dexie.js
+All conversations and personalized memory remain on your own device.
 
-Cryptography
+VaultAI does not:
 
-- Web Crypto API
+- Upload conversations to a server
+- Store chat history in a cloud database
+- Require an AI API for inference
+- Share personal data with third parties
 
-🏗 Architecture
+The only network activity is the initial download of the AI model. Once downloaded, inference happens entirely on-device.
 
-                User
+---
 
-                  │
+🎯 Use Cases
 
-                  ▼
+- Personal AI Assistant
+- Offline AI Chat
+- Privacy-Conscious Users
+- Students & Researchers
+- Professionals handling sensitive information
+- Organizations with strict data privacy requirements
 
-        ┌──────────────────────┐
-        │     Web Browser      │
-        ├──────────────────────┤
-        │  Local LLM (WebLLM)  │
-        │                      │
-        │  IndexedDB (Dexie)   │
-        │                      │
-        │  Local AI Memory     │
-        │                      │
-        │  Local Conversations │
-        │                      │
-        │  Web Crypto API      │
-        └──────────────────────┘
+---
 
-                  │
+🌍 Vision
 
-          No Cloud Database
-          No AI API Calls
-          No Data Centre Storage
+We envision a future where users no longer have to trade privacy for intelligence.
 
-🎯 Problem Statement
-
-Modern AI assistants require users to send personal conversations, documents, and preferences to centralized servers. This raises concerns regarding privacy, ownership, compliance, and long-term security.
-
-Users should not have to sacrifice privacy to benefit from AI.
-
-💡 Our Solution
-
-VaultAI eliminates centralized AI data storage by executing AI models directly on the user's device.
-
-Instead of storing conversations in remote databases, all user data remains inside the browser using local storage technologies. The user owns their data, controls its lifecycle, and can delete everything whenever they choose.
-
-🔐 Privacy First
-
-VaultAI follows a simple principle:
-
-«Your AI belongs to you. Your data belongs to you.»
-
-The application:
-
-- Does not upload conversations to centralized databases
-- Does not require cloud AI inference
-- Keeps conversations inside the user's browser
-- Gives users complete control over deleting their data
-
-⚙ Installation
-
-git clone <repository-url>
-
-cd vaultai
-
-npm install
-
-npm run dev
-
-📂 Project Structure
-
-src/
- ├── components/
- ├── lib/
- │    ├── llm.ts
- │    ├── db.ts
- │    └── midnight.ts
- ├── pages/
- ├── hooks/
- └── App.tsx
-
-🌍 Future Scope
-
-- End-to-end encrypted vaults
-- Secure backup and restore
-- Local document search
-- Multi-device encrypted synchronization
-- Voice assistant
-- On-device Retrieval-Augmented Generation (RAG)
-- Password-protected encrypted vault
-
-🤝 Contributing
-
-Contributions are welcome. Feel free to open issues, submit pull requests, or suggest improvements.
+VaultAI replaces centralized AI infrastructure with local, user-owned intelligence—giving every individual a secure personal AI that works entirely on their own device.
 
