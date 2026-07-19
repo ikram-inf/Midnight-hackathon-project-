@@ -48,7 +48,7 @@ export const db = new LocalChatDB();
 
 // --- Conversations -----------------------------------------------------
 
-export async function createConversation(title = "Nouvelle conversation") {
+export async function createConversation(title = "New chat") {
   const conv: Conversation = {
     id: crypto.randomUUID(),
     title,
