@@ -104,3 +104,4 @@ We envision a future where users no longer have to trade privacy for intelligenc
 
 VaultAI replaces centralized AI infrastructure with local, user-owned intelligence—giving every individual a secure personal AI that works entirely on their own device.
 
+
