@@ -62,6 +62,8 @@ export function setLocalModelId(modelId: string) {
 
 let engine: webllm.MLCEngineInterface | null = null;
 let loadedModelId: string | null = null;
+let initPromise: Promise<webllm.MLCEngineInterface> | null = null;
+let initializingModelId: string | null = null;
 
 export type ChatMode = "local" | "cloud";
 
@@ -83,25 +85,43 @@ export async function initEngine(onProgress?: (msg: string) => void, forceModelI
     return engine;
   }
 
-  if (engine) {
-    try {
-      onProgress?.("Unloading previous model from GPU...");
-      await engine.unload();
-    } catch (e) {
-      console.warn("Unloading previous model failed:", e);
-    }
-    engine = null;
-    loadedModelId = null;
+  if (initPromise && initializingModelId === targetModelId) {
+    return initPromise;
   }
 
-  engine = await webllm.CreateMLCEngine(targetModelId, {
-    initProgressCallback: (report) => {
-      onProgress?.(report.text);
-    },
-  });
-  loadedModelId = targetModelId;
+  initializingModelId = targetModelId;
+  initPromise = (async () => {
+    if (engine) {
+      try {
+        onProgress?.("Unloading previous model from GPU...");
+        await engine.unload();
+      } catch (e) {
+        console.warn("Unloading previous model failed:", e);
+      }
+      engine = null;
+      loadedModelId = null;
+    }
 
-  return engine;
+    const newEngine = await webllm.CreateMLCEngine(targetModelId, {
+      initProgressCallback: (report) => {
+        onProgress?.(report.text);
+      },
+    });
+    engine = newEngine;
+    loadedModelId = targetModelId;
+    return newEngine;
+  })();
+
+  try {
+    const result = await initPromise;
+    return result;
+  } catch (error) {
+    engine = null;
+    loadedModelId = null;
+    initializingModelId = null;
+    initPromise = null;
+    throw error;
+  }
 }
 
 async function buildSystemPrompt() {
