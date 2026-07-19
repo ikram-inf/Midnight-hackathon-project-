@@ -60,10 +60,14 @@ export function setLocalModelId(modelId: string) {
   localStorage.setItem("chat-local-model", modelId);
 }
 
-let engine: webllm.MLCEngineInterface | null = null;
-let loadedModelId: string | null = null;
-let initPromise: Promise<webllm.MLCEngineInterface> | null = null;
-let initializingModelId: string | null = null;
+// Store the engine on globalThis to persist it across hot reloads and prevent the Emscripten VectorInt mismatch!
+const g = globalThis as any;
+if (g.__mlc_engine__ === undefined) {
+  g.__mlc_engine__ = null;
+  g.__mlc_loaded_model_id__ = null;
+  g.__mlc_init_promise__ = null;
+  g.__mlc_initializing_model_id__ = null;
+}
 
 export type ChatMode = "local" | "cloud";
 
@@ -81,25 +85,25 @@ export function setChatMode(mode: ChatMode) {
 export async function initEngine(onProgress?: (msg: string) => void, forceModelId?: string) {
   const targetModelId = forceModelId || getLocalModelId();
 
-  if (engine && loadedModelId === targetModelId) {
-    return engine;
+  if (g.__mlc_engine__ && g.__mlc_loaded_model_id__ === targetModelId) {
+    return g.__mlc_engine__;
   }
 
-  if (initPromise && initializingModelId === targetModelId) {
-    return initPromise;
+  if (g.__mlc_init_promise__ && g.__mlc_initializing_model_id__ === targetModelId) {
+    return g.__mlc_init_promise__;
   }
 
-  initializingModelId = targetModelId;
-  initPromise = (async () => {
-    if (engine) {
+  g.__mlc_initializing_model_id__ = targetModelId;
+  g.__mlc_init_promise__ = (async () => {
+    if (g.__mlc_engine__) {
       try {
         onProgress?.("Unloading previous model from GPU...");
-        await engine.unload();
+        await g.__mlc_engine__.unload();
       } catch (e) {
         console.warn("Unloading previous model failed:", e);
       }
-      engine = null;
-      loadedModelId = null;
+      g.__mlc_engine__ = null;
+      g.__mlc_loaded_model_id__ = null;
     }
 
     const newEngine = await webllm.CreateMLCEngine(targetModelId, {
@@ -107,19 +111,19 @@ export async function initEngine(onProgress?: (msg: string) => void, forceModelI
         onProgress?.(report.text);
       },
     });
-    engine = newEngine;
-    loadedModelId = targetModelId;
+    g.__mlc_engine__ = newEngine;
+    g.__mlc_loaded_model_id__ = targetModelId;
     return newEngine;
   })();
 
   try {
-    const result = await initPromise;
+    const result = await g.__mlc_init_promise__;
     return result;
   } catch (error) {
-    engine = null;
-    loadedModelId = null;
-    initializingModelId = null;
-    initPromise = null;
+    g.__mlc_engine__ = null;
+    g.__mlc_loaded_model_id__ = null;
+    g.__mlc_initializing_model_id__ = null;
+    g.__mlc_init_promise__ = null;
     throw error;
   }
 }
@@ -180,24 +184,31 @@ export async function generateReply(
   return reply.choices[0]?.message?.content ?? "";
 }
 
-// Very simple local heuristic to decide whether to "remember" something from
-// a user message. Runs 100% locally, nothing leaves the device. For the demo
-// this is intentionally simple; a nicer version could ask the model itself
-// "should this be remembered? reply fact|none" as a second local call.
-export function extractCandidateFact(userMessage: string): string | null {
+// A robust local sentence-by-sentence heuristic to extract profile facts from the user's messages.
+// This allows the model to "learn" a wide range of facts (e.g. name, location, pets, preferences)
+// 100% locally on the device, without sending raw conversation transcripts to any servers.
+export function extractCandidateFacts(userMessage: string): string[] {
+  const sentences = userMessage.split(/[.!?\n]+/);
   const triggers = [
-    "i prefer",
-    "i like",
-    "i don't like",
-    "i dislike",
-    "i am",
-    "i'm",
-    "my goal",
-    "i'm working on",
-    "i am working on",
+    "i am", "i'm", "my name", "my favorite", "i like", "i love", "i prefer",
+    "i live in", "i work", "i have", "my goal", "my dream", "i want",
+    "i'm working on", "i am working on", "my cat", "my dog", "my pet",
+    "my hobby", "my hobbies", "my sister", "my brother", "my family",
+    "my friend", "i speak", "i study", "i play", "i hate", "i dislike",
+    "i don't like", "my age", "i was born"
   ];
-  const lower = userMessage.toLowerCase();
-  const hit = triggers.find((t) => lower.includes(t));
-  if (!hit) return null;
-  return userMessage.trim().slice(0, 200);
+
+  const foundFacts: string[] = [];
+  for (const sentence of sentences) {
+    const trimmed = sentence.trim();
+    if (trimmed.length < 4) continue;
+    
+    const lower = trimmed.toLowerCase();
+    const hit = triggers.find((t) => lower.includes(t));
+    if (hit) {
+      // Clean up punctuation or extra spaces and save (up to 120 chars for clean facts)
+      foundFacts.push(trimmed.slice(0, 120));
+    }
+  }
+  return foundFacts;
 }

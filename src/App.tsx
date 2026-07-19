@@ -16,7 +16,7 @@ import {
 } from "./lib/db";
 import {
   generateReply,
-  extractCandidateFact,
+  extractCandidateFacts,
   initEngine,
   getChatMode,
   setChatMode,
@@ -179,12 +179,14 @@ export default function App() {
       setConversations(await listConversations());
     }
 
-    // Local-only "learning": look for a fact worth remembering, store it,
-    // and let the user see/delete it immediately, ONLY if consent is given.
+    // Local-only "learning": look for facts worth remembering, store them,
+    // and let the user see/delete them immediately, ONLY if consent is given.
     if (consentStatus !== "revoked") {
-      const candidate = extractCandidateFact(userText);
-      if (candidate) {
-        await addProfileFact(candidate);
+      const candidates = extractCandidateFacts(userText);
+      if (candidates.length > 0) {
+        for (const candidate of candidates) {
+          await addProfileFact(candidate);
+        }
         setFacts(await listProfileFacts());
       }
     }

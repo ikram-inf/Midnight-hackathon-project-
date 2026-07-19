@@ -106,19 +106,28 @@ body {
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: 6px;
-  padding: 6px 0;
+  padding: 8px 4px;
   cursor: pointer;
-  font-size: 14px;
-  transition: border-color 0.15s ease, transform 0.1s ease;
+  font-size: 11px;
+  font-family: "IBM Plex Mono", monospace;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
 
 .theme-btn:hover {
   border-color: var(--accent);
+  background: var(--panel);
 }
 
 .theme-btn.active {
+  background: var(--panel);
   border-color: var(--accent);
+  color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
+  font-weight: 600;
 }
 
 .theme-btn:active {
@@ -654,4 +663,5 @@ body {
   margin-top: 2px;
   font-family: system-ui, sans-serif;
 }
+
 
